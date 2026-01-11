@@ -13,6 +13,8 @@ import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
+import json
+import os
 
 # 페이지 설정
 st.set_page_config(
@@ -46,6 +48,32 @@ st.markdown("""
     .risk-high { color: #ef4444; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
+
+# 데이터 저장 파일 경로
+DATA_FILE = 'portfolio_data.json'
+
+def save_portfolio_data():
+    """포트폴리오 데이터를 로컬 파일에 저장"""
+    try:
+        data = {
+            'portfolio': st.session_state.portfolio,
+            'cash_balance': st.session_state.cash_balance
+        }
+        with open(DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        st.error(f"데이터 저장 실패: {str(e)}")
+
+def load_portfolio_data():
+    """저장된 포트폴리오 데이터 로드"""
+    try:
+        if os.path.exists(DATA_FILE):
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data.get('portfolio', []), data.get('cash_balance', 0.0)
+    except Exception as e:
+        st.error(f"데이터 로드 실패: {str(e)}")
+    return [], 0.0
 
 # 알려진 베타값 데이터베이스 (레버리지 ETF 포함)
 KNOWN_BETAS = {
@@ -96,11 +124,11 @@ KNOWN_BETAS = {
     'INTC': 0.78
 }
 
-# 세션 상태 초기화
+# 세션 상태 초기화 (저장된 데이터 로드)
 if 'portfolio' not in st.session_state:
-    st.session_state.portfolio = []
-if 'cash_balance' not in st.session_state:
-    st.session_state.cash_balance = 0.0
+    saved_portfolio, saved_cash = load_portfolio_data()
+    st.session_state.portfolio = saved_portfolio
+    st.session_state.cash_balance = saved_cash
 
 def get_stock_data(ticker):
     """실시간 주식 데이터 가져오기"""
@@ -197,6 +225,9 @@ def create_beta_gauge(beta):
 st.markdown('<h1 class="main-header">📊 Portfolio Beta Calculator</h1>', unsafe_allow_html=True)
 st.markdown("### 포트폴리오 리스크 분석 대시보드")
 
+# 자동 저장 안내
+st.info("💾 **자동 저장 기능 활성화**: 입력한 데이터가 자동으로 저장되어 브라우저를 껐다 켜도 유지됩니다.")
+
 # 사이드바 - 종목 추가
 with st.sidebar:
     st.header("➕ 종목 추가")
@@ -212,6 +243,7 @@ with st.sidebar:
                 if stock_data:
                     stock_data['shares'] = shares_input
                     st.session_state.portfolio.append(stock_data)
+                    save_portfolio_data()  # 데이터 저장
                     st.success(f"✅ {ticker_input} 추가 완료!")
                     st.rerun()
     
@@ -228,6 +260,7 @@ with st.sidebar:
     )
     if cash_input != st.session_state.cash_balance:
         st.session_state.cash_balance = cash_input
+        save_portfolio_data()  # 데이터 저장
         st.rerun()
     
     st.divider()
@@ -236,6 +269,7 @@ with st.sidebar:
     if st.button("🗑️ 포트폴리오 초기화", use_container_width=True):
         st.session_state.portfolio = []
         st.session_state.cash_balance = 0.0
+        save_portfolio_data()  # 데이터 저장
         st.rerun()
 
 # 메인 영역
@@ -295,6 +329,7 @@ if st.session_state.portfolio:
         with cols[idx % 4]:
             if st.button(f"❌ {stock['ticker']} 삭제", key=f"del_{idx}"):
                 st.session_state.portfolio.pop(idx)
+                save_portfolio_data()  # 데이터 저장
                 st.rerun()
 
 else:
