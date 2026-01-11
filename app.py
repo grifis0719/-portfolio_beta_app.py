@@ -232,20 +232,61 @@ st.info("💾 **자동 저장 기능 활성화**: 입력한 데이터가 자동�
 with st.sidebar:
     st.header("➕ 종목 추가")
     
-    with st.form("add_stock_form"):
-        ticker_input = st.text_input("티커 심볼", placeholder="예: TQQQ, AAPL, TSLA").upper()
-        shares_input = st.number_input("주식 수", min_value=0, value=100, step=1)
-        submit_button = st.form_submit_button("📈 종목 추가", use_container_width=True)
+    # 티커 입력
+    ticker_input = st.text_input("티커 심볼", placeholder="예: TQQQ, AAPL, TSLA", key="ticker_input").upper()
+    
+    # 베타값 자동 조회 및 수동 입력
+    auto_beta = None
+    beta_source = ""
+    
+    if ticker_input:
+        # 자동으로 베타값 찾기
+        if ticker_input in KNOWN_BETAS:
+            auto_beta = KNOWN_BETAS[ticker_input]
+            beta_source = "📚 내장 데이터베이스"
+        else:
+            try:
+                stock = yf.Ticker(ticker_input)
+                info = stock.info
+                api_beta = info.get('beta')
+                if api_beta:
+                    auto_beta = api_beta
+                    beta_source = "🌐 Yahoo Finance API"
+            except:
+                pass
         
-        if submit_button and ticker_input:
+        if auto_beta is not None:
+            st.info(f"{beta_source}에서 찾은 베타값: **{auto_beta:.2f}**")
+        else:
+            st.warning(f"⚠️ {ticker_input}의 베타값을 찾을 수 없습니다. 직접 입력해주세요.")
+    
+    # 베타값 수동 입력 (자동 값이 있으면 기본값으로 설정)
+    default_beta = auto_beta if auto_beta is not None else 1.0
+    beta_input = st.number_input(
+        "베타 값 (수동 입력 가능)", 
+        min_value=-5.0, 
+        max_value=5.0,
+        value=default_beta,
+        step=0.01,
+        format="%.2f",
+        help="자동으로 찾은 값이 틀렸거나 없는 경우 직접 수정하세요"
+    )
+    
+    shares_input = st.number_input("주식 수", min_value=0, value=100, step=1)
+    
+    if st.button("📈 종목 추가", use_container_width=True):
+        if ticker_input:
             with st.spinner(f'{ticker_input} 데이터 가져오는 중...'):
                 stock_data = get_stock_data(ticker_input)
                 if stock_data:
                     stock_data['shares'] = shares_input
+                    stock_data['beta'] = beta_input  # 사용자가 입력한 베타값 사용
                     st.session_state.portfolio.append(stock_data)
                     save_portfolio_data()  # 데이터 저장
-                    st.success(f"✅ {ticker_input} 추가 완료!")
+                    st.success(f"✅ {ticker_input} 추가 완료! (Beta: {beta_input:.2f})")
                     st.rerun()
+        else:
+            st.error("티커 심볼을 입력해주세요!")
     
     st.divider()
     
@@ -322,12 +363,40 @@ if st.session_state.portfolio:
     df = pd.DataFrame(df_data)
     st.dataframe(df, use_container_width=True, hide_index=True)
     
-    # 개별 종목 삭제 버튼
-    st.subheader("종목 관리")
-    cols = st.columns(min(len(st.session_state.portfolio), 4))
+    # 개별 종목 관리
+    st.subheader("🔧 종목 관리")
+    
+    # 종목별 베타 수정 섹션
+    st.markdown("##### 베타 값 수정")
     for idx, stock in enumerate(st.session_state.portfolio):
-        with cols[idx % 4]:
-            if st.button(f"❌ {stock['ticker']} 삭제", key=f"del_{idx}"):
+        col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
+        
+        with col1:
+            st.text(f"**{stock['ticker']}**")
+        
+        with col2:
+            st.text(f"현재 Beta: {stock['beta']:.2f}")
+        
+        with col3:
+            new_beta = st.number_input(
+                f"새 Beta",
+                min_value=-5.0,
+                max_value=5.0,
+                value=float(stock['beta']),
+                step=0.01,
+                format="%.2f",
+                key=f"beta_edit_{idx}",
+                label_visibility="collapsed"
+            )
+            if new_beta != stock['beta']:
+                if st.button("💾 저장", key=f"save_beta_{idx}"):
+                    st.session_state.portfolio[idx]['beta'] = new_beta
+                    save_portfolio_data()
+                    st.success(f"✅ {stock['ticker']} 베타값 업데이트: {new_beta:.2f}")
+                    st.rerun()
+        
+        with col4:
+            if st.button("❌", key=f"del_{idx}", help=f"{stock['ticker']} 삭제"):
                 st.session_state.portfolio.pop(idx)
                 save_portfolio_data()  # 데이터 저장
                 st.rerun()
